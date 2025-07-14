@@ -1,58 +1,41 @@
-# app.py
-
 import streamlit as st
 import pandas as pd
-import joblib
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.ensemble import RandomForestClassifier
+import plotly.express as px
+from model import load_model, predict
 
-st.set_page_config(page_title="VerzuimDashboard", layout="wide")
+st.set_page_config(layout='wide')
+st.title("HR Verzuimvoorspeller Dashboard")
 
-st.title("📊 VerzuimDashboard – Signaleer & Voorkom")
+model = load_model("model.pkl")
 
-# Upload data
-uploaded_file = st.file_uploader("📤 Upload medewerkersdata (.csv)", type="csv")
-
+uploaded_file = st.file_uploader("Upload Excelbestand met medewerkergegevens", type=["xlsx"])
 if uploaded_file:
-    df = pd.read_csv(uploaded_file)
+    try:
+        df = pd.read_excel(uploaded_file)
+        df_pred = predict(model, df)
 
-    st.subheader("📋 Ingevoerde Data")
-    st.dataframe(df.head())
+        st.subheader("📊 Samenvatting Data")
+        st.write(df_pred.describe())
 
-    if "verzuim" not in df.columns:
-        st.warning("⚠️ Voeg een 'verzuim' kolom toe (1 = ziek, 0 = niet ziek) om voorspellingen te trainen.")
-    else:
-        # Laat statistieken zien
-        st.subheader("📈 Algemene Statistieken")
-        st.write(df.describe())
+        afdelingen = st.multiselect("Filter op Afdeling", options=df_pred['Afdeling'].unique(), default=df_pred['Afdeling'].unique())
+        risico_filter = st.multiselect("Filter op Risicoklasse", options=['Laag', 'Midden', 'Hoog'], default=['Laag', 'Midden', 'Hoog'])
 
-        # Visualisaties
-        st.subheader("📊 Verzuim per afdeling")
-        if 'afdeling' in df.columns:
-            fig1, ax1 = plt.subplots()
-            sns.countplot(data=df, x='afdeling', hue='verzuim', ax=ax1)
-            st.pyplot(fig1)
+        df_filtered = df_pred[df_pred['Afdeling'].isin(afdelingen) & df_pred['Risicoklasse'].isin(risico_filter)]
 
-        # Voorbeeldmodel bouwen
-        st.subheader("🤖 Verzuimrisico Voorspellen met AI")
-        feature_cols = [col for col in df.columns if col not in ['verzuim', 'naam', 'id']]
-        X = df[feature_cols]
-        y = df['verzuim']
+        st.subheader("📈 Verzuim Risicoverdeling")
+        fig = px.histogram(df_filtered, x="Risicoscore", nbins=20, title="Histogram Risicoscore")
+        st.plotly_chart(fig, use_container_width=True)
 
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
-        model.fit(X, y)
+        st.subheader("🏢 Gemiddeld risico per Afdeling")
+        avg_risico = df_filtered.groupby("Afdeling")["Risicoscore"].mean().sort_values(ascending=False).reset_index()
+        fig2 = px.bar(avg_risico, x="Afdeling", y="Risicoscore", title="Gemiddeld Risico per Afdeling")
+        st.plotly_chart(fig2, use_container_width=True)
 
-        df['voorspelling'] = model.predict(X)
-        df['risico (%)'] = model.predict_proba(X)[:, 1] * 100
-
-        st.success("✅ AI-model getraind! Hieronder zie je de risico-inzichten.")
-        st.dataframe(df[['naam'] + feature_cols + ['risico (%)']].sort_values(by='risico (%)', ascending=False))
-
-        # Opslaan van model (optioneel)
-        if st.button("💾 Sla AI-model op"):
-            joblib.dump(model, "verzuim_model.pkl")
-            st.success("Model opgeslagen als verzuim_model.pkl")
-
+        st.subheader("📥 Download Resultaten")
+        csv = df_pred.to_csv(index=False).encode("utf-8")
+        st.download_button("Download CSV met Risicoscores", csv, "verzuimresultaten.csv", "text/csv")
+    except Exception as e:
+        st.error(f"Fout bij verwerken bestand: {e}")
 else:
-    st.info("⬆️ Upload eerst een .csv-bestand met medewerkersdata om te starten.")
+    st.info("Upload een bestand om te beginnen.")
+
