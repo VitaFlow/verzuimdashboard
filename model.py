@@ -1,26 +1,20 @@
-# model.py
-# Voor training van een los AI-model voor verzuimvoorspelling
-
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
 import joblib
 
-# Laad dataset
-df = pd.read_csv("data/voorbeeld.csv")
+def load_model(model_path='model.pkl'):
+    return joblib.load(model_path)
 
-# Features en target
-X = df.drop(columns=["verzuim", "id", "naam"])
-y = df["verzuim"]
+def preprocess(df):
+    df = df.copy()
+    df_encoded = pd.get_dummies(df[['Geslacht', 'Afdeling']])
+    numerical = df[['Leeftijd', 'Dienstjaren', 'Verzuimdagen_12mnd',
+                    'ZiekteverzuimScore', 'MentaleBelastingScore',
+                    'FysiekeBelastingScore', 'WerktevredenheidScore']]
+    return pd.concat([df_encoded, numerical], axis=1)
 
-# Train/test split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# Model trainen
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-
-# Opslaan model
-joblib.dump(model, "verzuim_model.pkl")
-
-print("✅ Model opgeslagen als 'verzuim_model.pkl'")
+def predict(model, df):
+    X = preprocess(df)
+    probs = model.predict_proba(X)[:, 1]
+    df['Risicoscore'] = probs
+    df['Risicoklasse'] = pd.cut(probs, bins=[0, 0.33, 0.66, 1], labels=['Laag', 'Midden', 'Hoog'])
+    return df
